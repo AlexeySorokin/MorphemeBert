@@ -29,6 +29,7 @@ argument_parser.add_argument("-T", "--test-file", default=None)
 argument_parser.add_argument("-o", "--output-file", default=None)
 argument_parser.add_argument("-l", "--language", default=None)
 argument_parser.add_argument("-s", "--sep", default="/")
+argument_parser.add_argument("-E", "--english", action="store_false")
 argument_parser.add_argument("-R", "--no-reload", dest="reload", action="store_false")
 argument_parser.add_argument("-m", "--models-number", default=1, type=int)
 
@@ -42,7 +43,7 @@ def read_config(config_path: str):
         config = json.load(fin)
     bert_model = config.pop("bert_model", None)
     model_type = config.pop("model_type", "bert")
-    if bert_model or config["embeddings"]:
+    if bert_model or "embeddings" in config:
         if bert_model:
             config["vocab"] = BertTokenizer.from_pretrained(bert_model).vocab
         if model_type in ["word2vec", "w2v"]:
@@ -162,7 +163,7 @@ if __name__ == "__main__":
         # for word_data, raw_labels, labels in zip(dev_dataset.data, raw_predictions[:10], predictions[:10]):
         #     print(word_data["word"], raw_labels, labels, "".join(word_data[config["field"]]))
         corr_labels = ["".join(word_data[config["field"]]) for word_data in dev_dataset.data]
-        qualities.append(measure_quality(corr_labels, predictions, measure_last=False))
+        qualities.append(measure_quality(corr_labels, predictions, english_metrics=args.english, measure_last=False))
         if args.output_file is not None:
             output_file = append_model_number(args.output_file, model_number+1)
             words = [word_data["word"] for word_data in dev_dataset.data]
