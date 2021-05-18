@@ -4,6 +4,7 @@ import tqdm
 import numpy as np
 import torch
 
+from read import to_BMES
 from dataloader import FieldBatchDataLoader
 
 
@@ -123,12 +124,16 @@ def measure_quality_BIO(targets, predicted_targets, english_metrics=False, measu
     return answer
 
 
-def measure_quality(targets, predicted_targets, english_metrics=False, measure_last=True):
+def measure_quality(targets, predicted_targets, from_segmentations=False,
+                    english_metrics=False, measure_last=True):
     """
     targets: метки корректных ответов
     predicted_targets: метки предсказанных ответов
     Возвращает словарь со значениями основных метрик
     """
+    if from_segmentations:
+        targets = [to_BMES(elem) for elem in targets]
+        predicted_targets = [to_BMES(elem) for elem in predicted_targets]
     if "-" not in targets[0][0]:
         targets = [[x + "-None" for x in elem] for elem in targets]
     if "-" not in predicted_targets[0]:
