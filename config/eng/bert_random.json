@@ -1,0 +1,23 @@
+{
+  "field": "bmes_labels",
+  "bert_model": "bert-base-uncased",
+  "model_type": "random",
+  "d": 5,
+  "max_morpheme_length": 7,
+  "model_params": {
+    "n_layers": 3,
+    "n_letter_embedding": 96,
+    "n_proj": 256,
+    "window": 5,
+    "n_hidden": 256,
+    "dropout": 0.2,
+    "use_embedding_relu": true,
+    "use_batch_norm": true,
+    "lr": 1e-3,
+    "l2": 0.1
+  },
+  "train_params": {
+    "nepochs": 25,
+    "checkpoint": null
+  }
+}
