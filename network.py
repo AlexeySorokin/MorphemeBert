@@ -91,10 +91,10 @@ class BertMorphemeLetterModel(BasicNeuralTagger):
         self.labels_number = labels_number
         self.task_data = task_data or dict()
         print(kwargs)
+        self.device = device
         self.build_network(labels_number, **kwargs, input_dim=vocab_size)
         # определяем функцию потерь
         self.criterion = nn.NLLLoss(reduction="none")
-        self.device = device
         self.clip = clip
         self.l2 = l2
         self.min_prob = torch.Tensor([min_prob])[0].to(device)
@@ -119,15 +119,19 @@ class BertMorphemeLetterModel(BasicNeuralTagger):
     
     def _build_basic_network(self, letters_number,
                              input_dim=None, n_letter_embedding=32,
-                             use_bert=True, d=10, n_proj=256,
+                             use_bert=True, use_subtoken_weights=False,
+                             subtoken_vocab_size=None,
+                             d=10, n_proj=256,
                              n_layers=1, window=5, n_hidden=256,
                              use_embedding_relu=False,
                              use_batch_norm=True,
-                             dropout=0.1, n_before_dense=None
+                             dropout=0.1, n_before_dense=None,
+                             **kwargs
                              ):
         self.letters_number = letters_number
         self.n_letter_embedding = n_letter_embedding
         self.use_bert = use_bert
+        self.use_subtoken_weights = use_subtoken_weights
         self.d = d
         self.n_proj = n_proj
         self.n_layers = n_layers
@@ -138,6 +142,11 @@ class BertMorphemeLetterModel(BasicNeuralTagger):
         # layers
         self.dropout = torch.nn.Dropout(dropout)
         if self.use_bert:
+            if self.use_subtoken_weights:
+                assert subtoken_vocab_size is not None
+                self.subtoken_weights = torch.nn.Parameter(
+                    data=torch.Tensor(subtoken_vocab_size), requires_grad=True
+                )
             self.projection = torch.nn.Linear(d * input_dim, n_proj)
         if self.n_letter_embedding is not None:
             self.letter_embedding = torch.nn.Embedding(letters_number, self.n_letter_embedding)
@@ -162,7 +171,8 @@ class BertMorphemeLetterModel(BasicNeuralTagger):
             n_hidden=n_hidden,
             use_embedding_relu=use_embedding_relu,
             use_batch_norm=use_batch_norm,
-            dropout=dropout
+            dropout=dropout,
+            **kwargs
         )
         self.n_before_dense = n_before_dense
         last_n_hidden = self.conv_layer.output_dim if self.n_layers > 0 else self.n_hidden
@@ -174,12 +184,16 @@ class BertMorphemeLetterModel(BasicNeuralTagger):
     
     def _basic_forward(self, letters, **kwargs):
         inputs = kwargs.get("inputs") if self.use_bert else None
+        subtoken_indexes = kwargs.get("subtoken_indexes") if self.use_bert else None
         if self.n_letter_embedding is not None:
             letter_embeddings = self.letter_embedding(letters)
         else:
             letter_embeddings = torch.nn.functional.one_hot(letters, self.letters_number).float()
         # print(letter_embeddings.type)
         if inputs is not None:
+            if self.use_subtoken_weights and subtoken_indexes is not None:
+                input_weights = torch.unsqueeze(torch.sigmoid(self.subtoken_weights[subtoken_indexes]), dim=-1)
+                inputs *= input_weights
             shape = inputs.shape
             new_shape = tuple(shape[:-2]) + (shape[-2] * shape[-1],)
             inputs = inputs.reshape(new_shape)

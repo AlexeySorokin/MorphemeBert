@@ -68,6 +68,7 @@ class BertSegmentDatasetReader(Dataset):
         if self.vocab is not None and self.embeddings is not None:
             subtoken_indexes, x = self._word_to_matrix(word)
             answer["inputs"] = x
+            answer["subtoken_indexes"] = subtoken_indexes
         try:
             answer["y"] = [self.label_codes_[label] for label in self.data[i][self.field]]
         except:
