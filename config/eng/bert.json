@@ -17,6 +17,6 @@
   },
   "train_params": {
     "nepochs": 25,
-    "checkpoint": "null"
+    "checkpoint": null
   }
 }
