@@ -12,7 +12,7 @@ from read import read_infile, read_unimorph_infile
 from dataset import BertSegmentDatasetReader, BertUnimorphDatasetReader
 from dataloader import FieldBatchDataLoader, MultiDatasetBatchLoader
 from network import BertMorphemeLetterModel, BertUnimorphMorphemeLetterModel, BertOneSideMorphemeLetterModel
-from training import do_epoch, initialize_metrics
+from training import do_epoch, initialize_metrics, decode_viterbi
 from training import predict_with_model, measure_quality_BIO, measure_quality, normalize_target
 from write import write_output
 
@@ -32,6 +32,7 @@ argument_parser.add_argument("-s", "--sep", default="/")
 argument_parser.add_argument("-E", "--english", action="store_false")
 argument_parser.add_argument("-R", "--no-reload", dest="reload", action="store_false")
 argument_parser.add_argument("-m", "--models-number", default=1, type=int)
+argument_parser.add_argument("-v", "--viterbi_decoding", action="store_true")
 
 def read_config(config_path: str):
     DEFAULT_CONFIG = {
@@ -77,6 +78,8 @@ def read_config(config_path: str):
     if "model_params" not in config:
         config["model_params"] = dict()
     config["model_params"]["use_bert"] = config["use_bert"]
+    if config["use_bert"] and config["model_params"].get("use_subtoken_weights"):
+        config["model_params"]["subtoken_vocab_size"] = len(config["embeddings"])
     if "train_params" not in config:
         config["train_params"] = dict()
     for key, value in DEFAULT_TRAIN_PARAMS.items():
@@ -115,7 +118,9 @@ if __name__ == "__main__":
         "letters_number": len(train_dataset.letters_),
         "d": train_dataset.output_dim,
         "device": args.device,
-        "task_weights": dict()
+        "task_weights": dict(),
+        # "use_subtoken_weights": config["use_subtoken_weights"],
+        # "subtoken_vocab_size": len(config["bert_vocab"]) if "bert_vocab" in config else None
     }
     if unimorph_data is not None:
         unimorph_dataset_params = dataset_params.copy()
@@ -131,7 +136,7 @@ if __name__ == "__main__":
         cls_params["morpheme_labels_number"] = cls_params.pop("labels_number")
         cls_params["tag_labels_number"] = len(unimorph_dataset.labels_)
         cls_params["task_weights"]["unimorph"] = config["train_params"]["unimorph_task_weight"]
-    qualities = []
+    qualities, viterbi_qualities = [], []
     for model_number in range(args.models_number):
         # building the model
         model = cls(**cls_params, **config["model_params"])
@@ -157,21 +162,40 @@ if __name__ == "__main__":
         # evaluating on test
         test_dataset = BertSegmentDatasetReader(test_data, **bert_params, **dataset_params,
                                                 letters=train_dataset.letters_, labels=train_dataset.labels_)
-        full_predictions = predict_with_model(model, dev_dataset)
+        corr_labels = ["".join(word_data[config["field"]]) for word_data in test_dataset.data]
+        full_predictions = predict_with_model(model, test_dataset)
         raw_predictions = [elem["labels"] for elem in full_predictions]
         predictions = ["".join(x[0] for x in normalize_target(target)) for target in raw_predictions]
+        viterbi_output = [decode_viterbi(elem["probs"], test_dataset.labels_) for elem in full_predictions]
+        viterbi_predictions = ["".join([elem[0] for elem in states]) for states, _ in viterbi_output]
         # for word_data, raw_labels, labels in zip(dev_dataset.data, raw_predictions[:10], predictions[:10]):
         #     print(word_data["word"], raw_labels, labels, "".join(word_data[config["field"]]))
-        corr_labels = ["".join(word_data[config["field"]]) for word_data in dev_dataset.data]
+        corr_labels = ["".join(word_data[config["field"]]) for word_data in test_dataset.data]
         qualities.append(measure_quality(corr_labels, predictions, english_metrics=args.english, measure_last=False))
+        viterbi_qualities.append(measure_quality(corr_labels, viterbi_predictions, english_metrics=args.english, measure_last=False))
         if args.output_file is not None:
             output_file = append_model_number(args.output_file, model_number+1)
-            words = [word_data["word"] for word_data in dev_dataset.data]
+            words = [word_data["word"] for word_data in test_dataset.data]
             write_output(words, corr_labels, predictions, args.output_file)
     for quality in qualities:
         print(" ".join("{}:{:.2f}".format(elem[0], 100*elem[1]) for elem in quality.items()))
+    print("")
+    for quality in viterbi_qualities:
+        print(" ".join("{}:{:.2f}".format(elem[0], 100*elem[1]) for elem in quality.items()))
+    print("")
     if len(qualities) > 1:
-        mean_quality = dict()
+        mean_quality, std_quality = dict(), dict()
         for key in qualities[0]:
             mean_quality[key] = np.mean([elem[key] for elem in qualities])
-        print(" ".join("{}:{:.2f}".format(elem[0], 100*elem[1]) for elem in mean_quality.items()))
+            std_quality[key] = np.std([elem[key] for elem in qualities])
+        print(" ".join(
+            "{}:{:.2f}({:.2f})".format(key, 100*value, 100*std_quality[key])  for key, value in mean_quality.items()
+        ))
+    if len(viterbi_qualities) > 1:
+        mean_quality, std_quality = dict(), dict()
+        for key in viterbi_qualities[0]:
+            mean_quality[key] = np.mean([elem[key] for elem in viterbi_qualities])
+            std_quality[key] = np.std([elem[key] for elem in viterbi_qualities])
+        print(" ".join(
+            "{}:{:.2f}({:.2f})".format(key, 100*value, 100 * std_quality[key]) for key, value in mean_quality.items()
+        ))

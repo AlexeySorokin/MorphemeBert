@@ -187,3 +187,36 @@ def normalize_target(targets):
                 answer.append(f"M-{morph}")
                 state = f"M-{morph}"
     return answer
+
+
+def decode_viterbi(probs, labels):
+    labels = [(x if "-" in x else x + "-None") for x in labels]
+    label_codes = {label: i for i, label in enumerate(labels)}
+    prev_labels = [None] * len(labels)
+    for i, label in enumerate(labels):
+        label, morph = label.split("-")
+        if label in "BS":
+            curr_prev_labels = {f"E-{morph}", f"S-{morph}"}
+        else:
+            curr_prev_labels = {f"M-{morph}", f"B-{morph}"}
+        prev_labels[i] = [label_codes[label] for label in curr_prev_labels]
+    end_labels = [i for i, label in enumerate(labels) if label[0] in "ES"]
+    costs, prev_states = np.full_like(probs, -np.inf, dtype=float), np.zeros_like(probs, dtype=int)
+    for i, label in enumerate(labels):
+        label, morph = label.split("-")
+        if label in "BS":
+            costs[0,i] = probs[0,i]
+    for step, curr_probs in enumerate(probs[1:], 1):
+        for j, prob in enumerate(curr_probs):
+            curr_prev_labels = prev_labels[j]
+            prev_state = curr_prev_labels[np.argmax(costs[step-1,curr_prev_labels])]
+            costs[step,j] = costs[step-1, prev_state] + prob
+            prev_states[step,j] = prev_state
+    best_states = [end_labels[np.argmax(costs[-1,end_labels])]]
+    for i in range(len(probs)-1, 0, -1):
+        best_states.append(prev_states[i, best_states[-1]])
+    best_states = best_states[::-1]
+    best_probs = [probs[i, state] for i, state in enumerate(best_states)]
+    best_states = [labels[state] for state in best_states]
+    return best_states, best_probs
+    
